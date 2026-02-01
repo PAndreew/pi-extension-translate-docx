@@ -98,7 +98,13 @@ export function replaceTagsWithIds(paragraphs: string[]): {
 					runMatch[0].indexOf(textMatch[0]) + textMatch[0].length,
 				);
 				// Store the full <w:t> element template (with attributes) for reconstruction
-				const tElementTemplate = textMatch[0].replace(textMatch[1], "{{TEXT}}");
+				// Positional replacement — simple .replace() breaks when text content
+				// (e.g. a space) also appears inside the tag's attributes.
+				const tFull = textMatch[0];
+				const closingBracket = tFull.indexOf(">") + 1;
+				const textStart = tFull.indexOf(textMatch[1], closingBracket);
+				const tElementTemplate =
+					tFull.slice(0, textStart) + "{{TEXT}}" + tFull.slice(textStart + textMatch[1].length);
 
 				const id = nextId++;
 				idTagMap.set(id, JSON.stringify({
