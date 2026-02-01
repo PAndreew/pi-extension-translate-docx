@@ -5,6 +5,9 @@
   "description": "Translate Word documents with format preservation using parallel LLM sub-agents",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "translate-docx": "./dist/cli.js"
+  },
   "pi": {
     "extensions": [
       "./dist/index.js"
