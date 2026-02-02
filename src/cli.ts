@@ -9,7 +9,7 @@
 import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { translateDocx } from "./translate.js";
+import { translateDocx, terminateAllSessions } from "./translate.js";
 
 function usage(): never {
 	console.error(`Usage: translate-docx --input <file.docx> --output <file.docx> --lang <language> [options]
@@ -85,20 +85,43 @@ async function main() {
 		process.exit(1);
 	}
 
-	// Run translation
-	const result = await translateDocx({
-		inputPath: args.input,
-		outputPath: args.output,
-		targetLanguage: args.lang,
-		sourceLanguage: args.sourceLang,
-		concurrency,
-		modelRegistry,
-		model,
-		onProgress: (msg) => console.error(msg),
-	});
+	// Handle signals for graceful shutdown
+	const controller = new AbortController();
+	const signal = controller.signal;
 
-	// Output result as JSON on stdout for machine consumption
-	console.log(JSON.stringify(result));
+	const handleSignal = () => {
+		console.error("\nReceived signal, aborting translation...");
+		controller.abort();
+		terminateAllSessions();
+		process.exit(1);
+	};
+
+	process.on("SIGINT", handleSignal);
+	process.on("SIGTERM", handleSignal);
+
+	try {
+		// Run translation
+		const result = await translateDocx({
+			inputPath: args.input,
+			outputPath: args.output,
+			targetLanguage: args.lang,
+			sourceLanguage: args.sourceLang,
+			concurrency,
+			modelRegistry,
+			model,
+			onProgress: (msg) => console.error(msg),
+			signal,
+		});
+
+		// Output result as JSON on stdout for machine consumption
+		console.log(JSON.stringify(result));
+	} catch (error: any) {
+		if (signal.aborted) {
+			console.error("Translation aborted by user.");
+			process.exit(1);
+		}
+		throw error;
+	}
 }
 
 main().catch((err) => {

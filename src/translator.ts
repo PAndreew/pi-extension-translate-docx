@@ -25,6 +25,19 @@ Rules:
 - Output ONLY the translated result
 - Maintain the same whitespace and line structure`;
 
+const activeSessions = new Set<any>();
+
+export function terminateAllSessions() {
+	for (const session of activeSessions) {
+		try {
+			session.dispose();
+		} catch (e) {
+			// ignore
+		}
+	}
+	activeSessions.clear();
+}
+
 /**
  * Translate a single chunk using a disposable agent session.
  */
@@ -43,6 +56,8 @@ async function translateSingleChunk(
 		tools: [],
 		thinkingLevel: "off",
 	});
+
+	activeSessions.add(session);
 
 	let result = "";
 	session.subscribe((event: any) => {
@@ -65,8 +80,12 @@ async function translateSingleChunk(
 		`Translate the following ${langHint}to ${options.targetLanguage}:\n\n` +
 		chunk.simplifiedText;
 
-	await session.prompt(prompt);
-	session.dispose();
+	try {
+		await session.prompt(prompt);
+	} finally {
+		activeSessions.delete(session);
+		session.dispose();
+	}
 
 	return {
 		index: chunk.index,

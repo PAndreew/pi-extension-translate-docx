@@ -7,7 +7,9 @@ import type { Model } from "@mariozechner/pi-ai";
 import type { ModelRegistry } from "@mariozechner/pi-coding-agent";
 import { extractDocxXml, repackDocx } from "./docx.js";
 import { chunkParagraphs, replaceTagsWithIds, reconstructXml } from "./xml-chunker.js";
-import { translateChunksInParallel } from "./translator.js";
+import { translateChunksInParallel, terminateAllSessions } from "./translator.js";
+
+export { terminateAllSessions };
 
 /**
  * Basic XML well-formedness check. Verifies that every opening tag has
