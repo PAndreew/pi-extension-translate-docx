@@ -20,6 +20,7 @@ Options:
   --lang, -l        Target language, e.g. "German" (required)
   --source-lang     Source language (auto-detected if omitted)
   --concurrency     Max parallel translation requests (default: 5)
+  --batch-size      Number of paragraphs per batch (default: 50)
   --model           Model ID, e.g. "gemini-3-flash" (default: gemini-3-flash)
   --provider        Provider ID, e.g. "google-antigravity" (default: google-antigravity)
   --auth            Path to auth.json (default: ~/.pi/mom/auth.json)
@@ -39,6 +40,7 @@ function parseArgs(argv: string[]): Record<string, string> {
 			"--lang": "lang", "-l": "lang",
 			"--source-lang": "sourceLang",
 			"--concurrency": "concurrency",
+			"--batch-size": "batchSize",
 			"--model": "model",
 			"--provider": "provider",
 			"--auth": "auth",
@@ -64,6 +66,7 @@ async function main() {
 	const providerId = args.provider ?? "google-antigravity";
 	const modelId = args.model ?? "gemini-3-flash";
 	const concurrency = args.concurrency ? parseInt(args.concurrency, 10) : 5;
+	const batchSize = args.batchSize ? parseInt(args.batchSize, 10) : 50;
 
 	// Set up auth and model
 	const authStorage = new AuthStorage(authPath);
@@ -107,6 +110,7 @@ async function main() {
 			targetLanguage: args.lang,
 			sourceLanguage: args.sourceLang,
 			concurrency,
+			batchSize,
 			modelRegistry,
 			model,
 			onProgress: (msg) => console.error(msg),

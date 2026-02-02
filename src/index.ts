@@ -20,6 +20,9 @@ export default function (pi: ExtensionAPI) {
 			concurrency: Type.Optional(
 				Type.Number({ description: "Max parallel translation requests (default: 5)", minimum: 1, maximum: 20 }),
 			),
+			batch_size: Type.Optional(
+				Type.Number({ description: "Number of paragraphs per translation batch (default: 50)", minimum: 1, maximum: 200 }),
+			),
 		}),
 
 		async execute(_toolCallId, params, onUpdate, ctx, signal) {
@@ -29,6 +32,8 @@ export default function (pi: ExtensionAPI) {
 				targetLanguage: params.target_language,
 				sourceLanguage: params.source_language,
 				concurrency: params.concurrency,
+				// @ts-ignore
+				batchSize: params.batch_size,
 				modelRegistry: ctx.modelRegistry,
 				model: ctx.model,
 				signal,

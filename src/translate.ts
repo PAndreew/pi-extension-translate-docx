@@ -49,6 +49,7 @@ export interface TranslateDocxOptions {
 	targetLanguage: string;
 	sourceLanguage?: string;
 	concurrency?: number;
+	batchSize?: number;
 	modelRegistry: ModelRegistry;
 	model?: Model<any>;
 	signal?: AbortSignal;
@@ -73,6 +74,7 @@ export async function translateDocx(options: TranslateDocxOptions): Promise<Tran
 		onProgress,
 	} = options;
 	const concurrency = options.concurrency ?? 5;
+	const batchSize = options.batchSize ?? 50;
 
 	// Step 1: Extract XML from .docx
 	onProgress?.("Extracting document XML...");
@@ -93,13 +95,14 @@ export async function translateDocx(options: TranslateDocxOptions): Promise<Tran
 	const translatableCount = chunks.filter((c) => c.hasText).length;
 
 	// Step 3: Translate chunks in parallel via sub-agents
-	onProgress?.(`Translating ${translatableCount} chunks to ${targetLanguage}...`);
+	onProgress?.(`Translating ${translatableCount} chunks to ${targetLanguage} (batch size: ${batchSize})...`);
 	const translatedChunks = await translateChunksInParallel(chunks, {
 		targetLanguage,
 		sourceLanguage,
 		modelRegistry,
 		model,
 		concurrency,
+		batchSize,
 		signal,
 	});
 
