@@ -104,6 +104,7 @@ export async function translateDocx(options: TranslateDocxOptions): Promise<Tran
 		concurrency,
 		batchSize,
 		signal,
+		onProgress,
 	});
 
 	// Step 4: Reconstruct XML and repack .docx

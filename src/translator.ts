@@ -6,6 +6,8 @@ import type { ModelRegistry } from "@mariozechner/pi-coding-agent";
 import type { Model } from "@mariozechner/pi-ai";
 import type { ParagraphChunk } from "./xml-chunker.js";
 
+const MAX_RETRIES = 2;
+
 export interface TranslateOptions {
 	targetLanguage: string;
 	sourceLanguage?: string;
@@ -14,6 +16,7 @@ export interface TranslateOptions {
 	concurrency: number;
 	batchSize?: number;
 	signal?: AbortSignal;
+	onProgress?: (message: string) => void;
 }
 
 const TRANSLATION_SYSTEM_PROMPT = `You are a document translator. Your task is to translate text while preserving all markup markers exactly.
@@ -42,14 +45,21 @@ export function terminateAllSessions() {
 	activeSessions.clear();
 }
 
+interface BatchResult {
+	translated: ParagraphChunk[];
+	missing: ParagraphChunk[];
+}
+
 /**
  * Translate a batch of chunks using a single agent session.
+ * Returns both successfully translated chunks and any that were
+ * missing from the LLM response.
  */
 async function translateBatch(
 	batch: ParagraphChunk[],
 	options: TranslateOptions,
-): Promise<ParagraphChunk[]> {
-	if (batch.length === 0) return [];
+): Promise<BatchResult> {
+	if (batch.length === 0) return { translated: [], missing: [] };
 
 	const { session } = await createAgentSession({
 		model: options.model,
@@ -92,8 +102,7 @@ async function translateBatch(
 		await session.prompt(prompt);
 	} catch (e) {
 		console.error("Batch translation failed:", e);
-		// Return original chunks on failure to avoid data loss (though untranslated)
-		return batch; 
+		return { translated: [], missing: batch };
 	} finally {
 		activeSessions.delete(session);
 		session.dispose();
@@ -120,15 +129,15 @@ async function translateBatch(
 		}
 	}
 
-	// Handle missing/unparseable chunks by reverting to original
+	// Collect chunks missing from LLM response
+	const missing: ParagraphChunk[] = [];
 	for (const chunk of batch) {
 		if (!foundIds.has(chunk.index)) {
-			// console.warn(`Chunk ${chunk.index} missing from translation output, reverting.`);
-			results.push(chunk);
+			missing.push(chunk);
 		}
 	}
 
-	return results;
+	return { translated: results, missing };
 }
 
 /**
@@ -158,6 +167,8 @@ export async function translateChunksInParallel(
 	}
 
 	// Process batches with concurrency
+	let allMissing: ParagraphChunk[] = [];
+
 	for (let i = 0; i < batches.length; i += options.concurrency) {
 		if (options.signal?.aborted) {
 			throw new Error("Translation aborted");
@@ -168,11 +179,64 @@ export async function translateChunksInParallel(
 			currentBatches.map((batch) => translateBatch(batch, options)),
 		);
 
-		// Flatten batch results into main results array
-		for (const batchResult of batchResults) {
-			for (const translatedChunk of batchResult) {
-				results[translatedChunk.index] = translatedChunk;
+		for (const { translated, missing } of batchResults) {
+			for (const chunk of translated) {
+				results[chunk.index] = chunk;
 			}
+			allMissing.push(...missing);
+		}
+	}
+
+	// Retry missing chunks
+	for (let retry = 1; retry <= MAX_RETRIES && allMissing.length > 0; retry++) {
+		if (options.signal?.aborted) {
+			throw new Error("Translation aborted");
+		}
+
+		const missingIds = allMissing.map((c) => c.index).join(", ");
+		options.onProgress?.(
+			`Retry ${retry}/${MAX_RETRIES}: ${allMissing.length} chunks missing (ids: ${missingIds}), retranslating...`,
+		);
+		console.warn(
+			`Retry ${retry}/${MAX_RETRIES}: chunks [${missingIds}] missing from translation output, retrying...`,
+		);
+
+		// Retry missing chunks in smaller batches (one per batch) to maximise success
+		const retryBatches: ParagraphChunk[][] = allMissing.map((c) => [c]);
+		const stillMissing: ParagraphChunk[] = [];
+
+		for (let i = 0; i < retryBatches.length; i += options.concurrency) {
+			if (options.signal?.aborted) {
+				throw new Error("Translation aborted");
+			}
+
+			const currentBatches = retryBatches.slice(i, i + options.concurrency);
+			const retryResults = await Promise.all(
+				currentBatches.map((batch) => translateBatch(batch, options)),
+			);
+
+			for (const { translated, missing } of retryResults) {
+				for (const chunk of translated) {
+					results[chunk.index] = chunk;
+				}
+				stillMissing.push(...missing);
+			}
+		}
+
+		allMissing = stillMissing;
+	}
+
+	// If chunks are still missing after all retries, revert to originals and warn
+	if (allMissing.length > 0) {
+		const missingIds = allMissing.map((c) => c.index).join(", ");
+		options.onProgress?.(
+			`Warning: ${allMissing.length} chunks could not be translated after ${MAX_RETRIES} retries (ids: ${missingIds}). Keeping original text.`,
+		);
+		console.warn(
+			`${allMissing.length} chunks could not be translated after ${MAX_RETRIES} retries (ids: ${missingIds}). Keeping original text.`,
+		);
+		for (const chunk of allMissing) {
+			results[chunk.index] = chunk;
 		}
 	}
 
